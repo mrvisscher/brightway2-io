@@ -64,7 +64,7 @@ class SingleOutputEcospold2Importer(LCIImporter):
         Parameters
         ----------
         dirpath : str
-            Path to the directory containing the ecospold2 file.
+            Path to the directory containing the ecospold2 file or the .7z file containing a 'datasets' folder
         db_name : str
             Name of the LCI database.
         biosphere_database_name : str | None
@@ -82,9 +82,10 @@ class SingleOutputEcospold2Importer(LCIImporter):
         """
 
         self.dirpath = dirpath
+        self.compressed_import = str(dirpath).endswith(".7z")
 
-        if not Path(dirpath).is_dir():
-            raise ValueError(f"`dirpath` value was not a directory: {dirpath}")
+        if not Path(dirpath).is_dir() and not self.compressed_import:
+            raise ValueError(f"`dirpath` value was not a directory or .7z file: {dirpath}")
 
         self.db_name = db_name
         self.signal = signal
@@ -125,7 +126,10 @@ class SingleOutputEcospold2Importer(LCIImporter):
 
         start = time()
         try:
-            self.data = extractor.extract(dirpath, db_name, use_mp=use_mp)
+            if self.compressed_import:
+                self.data = extractor.compressed_extract(dirpath, db_name, use_mp=use_mp)
+            else:
+                self.data = extractor.extract(dirpath, db_name, use_mp=use_mp)
         except RuntimeError as e:
             raise MultiprocessingError(
                 "Multiprocessing error; re-run using `use_mp=False`"

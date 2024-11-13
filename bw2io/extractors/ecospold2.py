@@ -1,6 +1,7 @@
 import math
 import multiprocessing
 import os
+import py7zr
 
 from lxml import objectify
 from stats_arrays.distributions import (
@@ -151,6 +152,40 @@ class Ecospold2DataExtractor(object):
         return data
 
     @classmethod
+    def compressed_extract(cls, path, db_name, use_mp=True):
+        with py7zr.SevenZipFile(path, mode='r') as archive:
+            # Find all .spold dataset files
+            file_list = [
+                file.filename for file in archive.list()
+                if file.filename.startswith("datasets")
+                and file.filename.endswith(".spold")
+            ]
+            print(f"Extracting {len(file_list)} .7z files to memory...", end="")
+            extracted_data = archive.read(file_list)
+            print("done")
+
+        if use_mp:
+            with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
+                results = [
+                    pool.apply_async(
+                        cls.extract_activity_from_bytes,
+                        args=(file_bytes, file_name, db_name),
+                    )
+                    for file_name, file_bytes in extracted_data.items()
+                ]
+
+                data = []
+                for result in tqdm(results, desc="Processing datasets", total=len(results)):
+                    data.append(result.get())
+
+        else:
+            data = []
+            for file_name, file_bytes in tqdm(extracted_data.items()):
+                data.append(cls.extract_activity_from_bytes(file_bytes, file_name, db_name))
+
+        return data
+
+    @classmethod
     def condense_multiline_comment(cls, element):
         """
         Concatenate the text of all child elements with the tag
@@ -224,6 +259,48 @@ class Ecospold2DataExtractor(object):
         root = objectify.parse(
             open(os.path.join(dirpath, filename), encoding="utf-8")
         ).getroot()
+        return cls.extract_activity_from_root(root, filename, db_name)
+
+    @classmethod
+    def extract_activity_from_bytes(cls, xml_bytes, filename, db_name):
+        """
+        Extract and return the data of an activity from an XML file with the given
+        `filename` in the directory with the path `dirpath`.
+
+         Args
+         ----
+            cls (type): The class object.
+            dirpath (str): The path of the directory containing the XML file.
+            filename (str): The name of the XML file.
+            db_name (str): The name of the database.
+
+        Returns
+        -------
+        dict: The dictionary of data for the activity. The keys and values are as
+            follows:
+                - "comment": str. The condensed multiline comment.
+                - "classifications": list of tuples. The classification systems and
+                  values of the activity.
+                - "activity type": str. The type of the activity.
+                - "activity": str. The ID of the activity.
+                - "database": str. The name of the database.
+                - "exchanges": list of dicts. The exchanges of the activity.
+                - "filename": str. The name of the XML file.
+                - "location": str. The short name of the location of the activity.
+                - "name": str. The name of the activity.
+                - "synonyms": list of str. The synonyms of the activity.
+                - "parameters": dict. The parameters of the activity.
+                - "authors": dict of dicts. The authors of the activity. The keys and
+                  values of the inner dicts are as follows:
+                    - "name": str. The name of the author.
+                    - "email": str. The email of the author.
+                - "type": str. The type of the activity.
+        """
+        root = objectify.parse(xml_bytes).getroot()
+        return cls.extract_activity_from_root(root, filename, db_name)
+
+    @classmethod
+    def extract_activity_from_root(cls, root, filename, db_name):
         if hasattr(root, "activityDataset"):
             stem = root.activityDataset
         else:

@@ -28,6 +28,12 @@ def test_importer_custom_extractor():
 
 
 @bw2test
+def test_importer_from_7z():
+
+    imp = SingleOutputEcospold2Importer(os.path.join(FIXTURES, "compressed_ecospold.7z"), "ei")
+    assert imp.data
+
+@bw2test
 def test_importer_mp_error():
     class Extractor:
         def __init__(self):
